@@ -39,10 +39,7 @@ class LakeflowConnect:
         # Optional global filters/safeguards
         self.ideas_workflow_status: Optional[str] = options.get("ideas_workflow_status")
         self.max_ideas: Optional[int] = self._parse_optional_int(options.get("max_ideas"))
-
-        # TODO: FIGURE OUT WHAT THE PROPER BASE URL IS FOR THE DATABRICKS SUBDOMAIN
         self.base_url = f"https://{self.subdomain}.aha.io/api/v1"
-        # self.base_url = f"https://databrickinternal.ideas.aha.io/api/v1"
         
         self._session = requests.Session()
         self._session.headers.update(
@@ -52,9 +49,9 @@ class LakeflowConnect:
                 "Accept": "application/json",
             }
         )
-        # Cache for ideas list, keyed by (workflow_status, q). max_ideas is applied as a slice.
+        # Cache for ideas list, keyed by (workflow_status, q, max_ideas).
         # Keep None as the "cleared" state for compatibility with existing tests.
-        self._ideas_cache: Optional[dict[Tuple[Optional[str], Optional[str]], list[dict]]] = None
+        self._ideas_cache: Optional[dict[Tuple[Optional[str], Optional[str], Optional[int]], list[dict]]] = None
 
     def list_tables(self) -> List[str]:
         """Return the list of available Aha! tables."""
@@ -353,7 +350,8 @@ class LakeflowConnect:
         """
         workflow_status = self._effective_ideas_workflow_status(table_options)
         q = self._effective_ideas_q(table_options)
-        cache_key = (workflow_status, q)
+        max_ideas = self._effective_max_ideas(table_options)
+        cache_key = (workflow_status, q, max_ideas)
 
         if self._ideas_cache is None:
             self._ideas_cache = {}
@@ -366,7 +364,6 @@ class LakeflowConnect:
                 # Aha docs: q searches against idea name; pass-through.
                 extra_params["q"] = q
 
-            max_ideas = self._effective_max_ideas(table_options)
             # Fetch at most max_ideas ideas (early stop) to bound work.
             self._ideas_cache[cache_key] = self._fetch_paginated(
                 "/ideas",
@@ -375,11 +372,7 @@ class LakeflowConnect:
                 max_records=max_ideas,
             )
 
-        ideas = self._ideas_cache[cache_key]
-        max_ideas = self._effective_max_ideas(table_options)
-        if max_ideas is not None:
-            return ideas[:max_ideas]
-        return ideas
+        return self._ideas_cache[cache_key]
 
     def clear_cache(self) -> None:
         """Clear the ideas cache. Useful between test runs."""
@@ -486,7 +479,7 @@ class LakeflowConnect:
             if isinstance(errors, list) and errors:
                 msg = errors[0].get("message")
                 if isinstance(msg, str):
-                    m = re.search(r"(\\d+)\\s*seconds", msg)
+                    m = re.search(r"(\d+)\s*seconds", msg)
                     if m:
                         return max(1, int(m.group(1)))
         except Exception:

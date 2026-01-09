@@ -1,6 +1,6 @@
 {
-  "api_key": "",
-  "subdomain": "",
+  "api_key": "YOUR TOKEN HERE",
+  "subdomain": "databricks",
   "ideas_workflow_status": "Open",
-  "max_ideas": "200"
+  "max_ideas": "50"
 }

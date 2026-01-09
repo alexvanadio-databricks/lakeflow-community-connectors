@@ -76,7 +76,6 @@ def live_aha_data(integration_options_bounded):
     proxy_votes_sample = ideas_with_proxy_votes[:5] if ideas_with_proxy_votes else ideas[:5]
 
     # Reorder cached ideas so child-table reads iterate only the selected sample first.
-    cache_key = ("Open", None)
     if connector._ideas_cache is None:
         connector._ideas_cache = {}
 
@@ -86,10 +85,12 @@ def live_aha_data(integration_options_bounded):
         return list(selected) + rest
 
     # Fetch proxy votes for the preferred sample.
+    proxy_max = min(5, len(proxy_votes_sample))
+    proxy_cache_key = ("Open", None, proxy_max)
     try:
-        connector._ideas_cache[cache_key] = _reordered(proxy_votes_sample)
+        connector._ideas_cache[proxy_cache_key] = _reordered(proxy_votes_sample)
         proxy_iter, _ = connector.read_table(
-            "idea_proxy_votes", {}, {"max_ideas": str(min(5, len(proxy_votes_sample)))}
+            "idea_proxy_votes", {}, {"max_ideas": str(proxy_max)}
         )
     except requests.exceptions.RequestException as e:
         pytest.skip(f"Live Aha API not reachable (proxy votes read failed): {e}")
@@ -100,10 +101,12 @@ def live_aha_data(integration_options_bounded):
         raise
 
     # Fetch comments for the preferred sample.
+    comments_max = min(5, len(comments_sample))
+    comments_cache_key = ("Open", None, comments_max)
     try:
-        connector._ideas_cache[cache_key] = _reordered(comments_sample)
+        connector._ideas_cache[comments_cache_key] = _reordered(comments_sample)
         comments_iter, _ = connector.read_table(
-            "idea_comments", {}, {"max_ideas": str(min(5, len(comments_sample)))}
+            "idea_comments", {}, {"max_ideas": str(comments_max)}
         )
     except requests.exceptions.RequestException as e:
         pytest.skip(f"Live Aha API not reachable (comments read failed): {e}")
@@ -211,7 +214,7 @@ class TestAhaConnectorIntegration:
     """
     Integration tests against live Aha! API.
 
-    These tests are skipped by default. Run with: pytest -m integration
+    Requires sources/aha/configs/dev_config.json with valid credentials.
     """
 
     def test_list_tables(self, integration_config):
@@ -276,28 +279,32 @@ class TestAhaConnectorIntegration:
             assert record["idea_id"] is not None, "Comment has null idea_id"
 
     def test_ideas_cache_works_across_tables(self, integration_config, live_aha_data):
-        """Test that ideas cache prevents duplicate API calls."""
-        connector = AhaLakeflowConnect({**integration_config, "ideas_workflow_status": "Open", "max_ideas": "200"})
+        """Test that ideas cache prevents duplicate API calls when using same parameters."""
+        connector = AhaLakeflowConnect({**integration_config, "ideas_workflow_status": "Open", "max_ideas": "5"})
 
         # Read ideas first
         ideas_records, _ = connector.read_table("ideas", {}, {})
         ideas_list = list(ideas_records)
 
-        # Cache should now be populated
+        # Cache should now be populated with key ("Open", None, 5)
         assert connector._ideas_cache is not None
-        cached_ideas = connector._ideas_cache.copy()
+        cache_key = ("Open", None, 5)
+        assert cache_key in connector._ideas_cache
+        cached_ideas_count = len(connector._ideas_cache[cache_key])
 
-        # Read proxy votes (should use cache)
-        list(connector.read_table("idea_proxy_votes", {}, {"max_ideas": "5"})[0])
+        # Read proxy votes (should use same cached ideas since no table_options override)
+        list(connector.read_table("idea_proxy_votes", {}, {})[0])
 
-        # Cache should still have same content
-        assert connector._ideas_cache == cached_ideas
+        # Cache should still have the same entry
+        assert cache_key in connector._ideas_cache
+        assert len(connector._ideas_cache[cache_key]) == cached_ideas_count
 
-        # Read comments (should use cache)
-        list(connector.read_table("idea_comments", {}, {"max_ideas": "5"})[0])
+        # Read comments (should use same cached ideas)
+        list(connector.read_table("idea_comments", {}, {})[0])
 
-        # Cache should still have same content
-        assert connector._ideas_cache == cached_ideas
+        # Cache should still have the same entry
+        assert cache_key in connector._ideas_cache
+        assert len(connector._ideas_cache[cache_key]) == cached_ideas_count
 
     def test_full_connector_workflow(self, live_aha_data):
         """Test a complete workflow: list tables, get schemas, read data."""

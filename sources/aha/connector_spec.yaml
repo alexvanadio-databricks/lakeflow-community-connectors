@@ -1,0 +1,45 @@
+# Aha! Community Connector Spec
+# This file defines the specification for the connector including
+# connection parameters and allowlist options.
+
+# ============================================================================
+# Connection Parameters
+# These are provided when creating the Unity Catalog connection.
+# ============================================================================
+connection:
+  parameters:
+    - name: api_key
+      type: string
+      required: true
+      description: >
+        Aha! API key used for authentication. This is sent as a Bearer token.
+
+    - name: subdomain
+      type: string
+      required: true
+      description: >
+        Aha! subdomain (e.g., "company" for company.aha.io).
+
+    - name: ideas_workflow_status
+      type: string
+      required: false
+      description: >
+        Optional default workflow status filter for the ideas list request.
+        Can be overridden per-table via table_configuration.
+
+    - name: max_ideas
+      type: string
+      required: false
+      description: >
+        Optional cap on the number of ideas fetched (useful for development/testing).
+        Can be overridden per-table via table_configuration.
+
+# ============================================================================
+# External Options Allowlist
+# These table-specific options must be included in the externalOptionsAllowList
+# parameter of the UC connection to allow them to be passed through.
+# Use a comma-separated string of option names.
+# ============================================================================
+external_options_allowlist: "ideas_workflow_status,max_ideas,ideas_q,q"
+
+
