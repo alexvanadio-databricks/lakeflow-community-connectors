@@ -1,0 +1,7 @@
+# Ignore generated Python caches for this connector only
+__pycache__/
+test/__pycache__/
+
+# Local virtualenv for this connector
+.venv/
+

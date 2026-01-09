@@ -1,0 +1,66 @@
+{
+  "comments": [
+    {
+      "id": "comment-001",
+      "body": "<p>Great idea! We've been waiting for this feature.</p>",
+      "created_at": "2024-01-16T10:00:00.000Z",
+      "updated_at": "2024-01-16T10:00:00.000Z",
+      "url": "https://example.aha.io/ideas/ideas/PROD-I-1#comment_comment-001",
+      "resource": "https://example.aha.io/api/v1/comments/comment-001",
+      "user": {
+        "id": "user-004",
+        "name": "Charlie Brown",
+        "email": "charlie.brown@example.com",
+        "created_at": "2023-04-01T00:00:00.000Z",
+        "updated_at": "2024-01-01T00:00:00.000Z"
+      },
+      "attachments": []
+    },
+    {
+      "id": "comment-002",
+      "body": "<p>+1 on this. Our team would really benefit from dark mode.</p>",
+      "created_at": "2024-01-17T15:30:00.000Z",
+      "updated_at": "2024-01-17T15:30:00.000Z",
+      "url": "https://example.aha.io/ideas/ideas/PROD-I-1#comment_comment-002",
+      "resource": "https://example.aha.io/api/v1/comments/comment-002",
+      "user": {
+        "id": "user-005",
+        "name": "Diana Prince",
+        "email": "diana.prince@example.com",
+        "created_at": "2023-07-15T00:00:00.000Z",
+        "updated_at": "2024-01-10T00:00:00.000Z"
+      },
+      "attachments": [
+        {
+          "id": "attach-001",
+          "download_url": "https://example.aha.io/attachments/attach-001/download",
+          "created_at": "2024-01-17T15:30:00.000Z",
+          "file_name": "dark-mode-mockup.png",
+          "file_size": 245678,
+          "content_type": "image/png"
+        }
+      ]
+    },
+    {
+      "id": "comment-003",
+      "body": "<p>Thanks for the feedback! We're evaluating this for our next sprint.</p>",
+      "created_at": "2024-01-18T09:15:00.000Z",
+      "updated_at": "2024-01-18T09:15:00.000Z",
+      "url": "https://example.aha.io/ideas/ideas/PROD-I-1#comment_comment-003",
+      "resource": "https://example.aha.io/api/v1/comments/comment-003",
+      "user": {
+        "id": "user-002",
+        "name": "John Smith",
+        "email": "john.smith@example.com",
+        "created_at": "2023-01-01T00:00:00.000Z",
+        "updated_at": "2024-01-15T00:00:00.000Z"
+      },
+      "attachments": []
+    }
+  ],
+  "pagination": {
+    "total_records": 3,
+    "total_pages": 1,
+    "current_page": 1
+  }
+}

@@ -1,0 +1,88 @@
+{
+  "idea_endorsements": [
+    {
+      "id": "vote-001",
+      "created_at": "2024-01-16T09:00:00.000Z",
+      "updated_at": "2024-01-16T09:00:00.000Z",
+      "value": 10,
+      "link": null,
+      "weight": 1,
+      "endorsed_by_portal_user": {
+        "id": "portal-user-001",
+        "name": "Customer A",
+        "email": "customer.a@clientco.com",
+        "created_at": "2023-06-01T00:00:00.000Z"
+      },
+      "endorsed_by_idea_user": null,
+      "idea_organization": {
+        "id": "org-001",
+        "name": "Client Co",
+        "created_at": "2023-05-01T00:00:00.000Z",
+        "url": "https://example.aha.io/idea_portals/abc123/idea_organizations/org-001",
+        "resource": "https://example.aha.io/api/v1/idea_organizations/org-001"
+      },
+      "idea_users": [
+        {
+          "id": "idea-user-001",
+          "first_name": "Customer",
+          "last_name": "A",
+          "email": "customer.a@clientco.com"
+        }
+      ],
+      "description": {
+        "id": "vote-desc-001",
+        "body": "This feature would save us hours of work each week.",
+        "editor_version": 2,
+        "created_at": "2024-01-16T09:00:00.000Z",
+        "updated_at": "2024-01-16T09:00:00.000Z",
+        "attachments": []
+      },
+      "custom_fields": []
+    },
+    {
+      "id": "vote-002",
+      "created_at": "2024-01-17T14:30:00.000Z",
+      "updated_at": "2024-01-17T14:30:00.000Z",
+      "value": 25,
+      "link": "https://crm.example.com/deal/12345",
+      "weight": 2,
+      "endorsed_by_portal_user": null,
+      "endorsed_by_idea_user": {
+        "id": "idea-user-002",
+        "name": "Bob Wilson",
+        "email": "bob.wilson@enterprise.com",
+        "created_at": "2023-08-15T00:00:00.000Z",
+        "title": "VP of Engineering"
+      },
+      "idea_organization": {
+        "id": "org-002",
+        "name": "Enterprise Inc",
+        "created_at": "2023-02-01T00:00:00.000Z",
+        "url": "https://example.aha.io/idea_portals/abc123/idea_organizations/org-002",
+        "resource": "https://example.aha.io/api/v1/idea_organizations/org-002"
+      },
+      "idea_users": [
+        {
+          "id": "idea-user-002",
+          "first_name": "Bob",
+          "last_name": "Wilson",
+          "email": "bob.wilson@enterprise.com"
+        }
+      ],
+      "description": {
+        "id": "vote-desc-002",
+        "body": "Critical for our Q2 goals.",
+        "editor_version": 2,
+        "created_at": "2024-01-17T14:30:00.000Z",
+        "updated_at": "2024-01-17T14:30:00.000Z",
+        "attachments": []
+      },
+      "custom_fields": []
+    }
+  ],
+  "pagination": {
+    "total_records": 2,
+    "total_pages": 1,
+    "current_page": 1
+  }
+}
