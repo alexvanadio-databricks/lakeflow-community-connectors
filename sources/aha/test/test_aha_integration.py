@@ -36,7 +36,7 @@ def integration_options_bounded(integration_config) -> dict:
     """Bounded connector init options for integration tests."""
     # Pull a larger pool of Open ideas so we have a better chance to find ideas with comments,
     # but still keep child-table reads capped to a tiny sample.
-    return {**integration_config, "ideas_workflow_status": "Open", "max_ideas": "200"}
+    return {**integration_config, "ideas_workflow_status": "Open", "max_ideas": "100"}
 
 
 @pytest.fixture(scope="session")
@@ -219,7 +219,7 @@ class TestAhaConnectorIntegration:
 
     def test_list_tables(self, integration_config):
         """Test list_tables against live API."""
-        connector = AhaLakeflowConnect({**integration_config, "ideas_workflow_status": "Open", "max_ideas": "200"})
+        connector = AhaLakeflowConnect({**integration_config, "ideas_workflow_status": "Open", "max_ideas": "100"})
         tables = connector.list_tables()
 
         assert isinstance(tables, list)
@@ -230,7 +230,7 @@ class TestAhaConnectorIntegration:
 
     def test_get_table_schema_all_tables(self, integration_config):
         """Test get_table_schema for all tables against live API."""
-        connector = AhaLakeflowConnect({**integration_config, "ideas_workflow_status": "Open", "max_ideas": "200"})
+        connector = AhaLakeflowConnect({**integration_config, "ideas_workflow_status": "Open", "max_ideas": "100"})
 
         for table_name in connector.list_tables():
             schema = connector.get_table_schema(table_name, {})
@@ -239,7 +239,7 @@ class TestAhaConnectorIntegration:
 
     def test_read_table_metadata_all_tables(self, integration_config):
         """Test read_table_metadata for all tables against live API."""
-        connector = AhaLakeflowConnect({**integration_config, "ideas_workflow_status": "Open", "max_ideas": "200"})
+        connector = AhaLakeflowConnect({**integration_config, "ideas_workflow_status": "Open", "max_ideas": "100"})
 
         for table_name in connector.list_tables():
             metadata = connector.read_table_metadata(table_name, {})
@@ -347,7 +347,7 @@ class TestAhaConnectorIntegration:
 
     def test_ideas_schema_matches_live_data(self, integration_config, live_aha_data):
         """Validate that live ideas data matches our hardcoded schema."""
-        connector = AhaLakeflowConnect({**integration_config, "ideas_workflow_status": "Open", "max_ideas": "200"})
+        connector = AhaLakeflowConnect({**integration_config, "ideas_workflow_status": "Open", "max_ideas": "100"})
         schema = connector.get_table_schema("ideas", {})
         records_list = live_aha_data["ideas"]
 
@@ -365,7 +365,7 @@ class TestAhaConnectorIntegration:
 
     def test_proxy_votes_schema_matches_live_data(self, integration_config, live_aha_data):
         """Validate that live proxy votes data matches our hardcoded schema."""
-        connector = AhaLakeflowConnect({**integration_config, "ideas_workflow_status": "Open", "max_ideas": "200"})
+        connector = AhaLakeflowConnect({**integration_config, "ideas_workflow_status": "Open", "max_ideas": "100"})
         schema = connector.get_table_schema("idea_proxy_votes", {})
         records_list = live_aha_data["proxy_votes"]
 
@@ -383,7 +383,7 @@ class TestAhaConnectorIntegration:
 
     def test_comments_schema_matches_live_data(self, integration_config, live_aha_data):
         """Validate that live comments data matches our hardcoded schema."""
-        connector = AhaLakeflowConnect({**integration_config, "ideas_workflow_status": "Open", "max_ideas": "200"})
+        connector = AhaLakeflowConnect({**integration_config, "ideas_workflow_status": "Open", "max_ideas": "100"})
         schema = connector.get_table_schema("idea_comments", {})
         records_list = live_aha_data["comments"]
 
@@ -408,7 +408,7 @@ class TestAhaConnectorIntegration:
         This is a warning-level test - unmapped fields won't cause failures
         but indicate potential data loss.
         """
-        connector = AhaLakeflowConnect({**integration_config, "ideas_workflow_status": "Open", "max_ideas": "200"})
+        connector = AhaLakeflowConnect({**integration_config, "ideas_workflow_status": "Open", "max_ideas": "100"})
         schema = connector.get_table_schema("ideas", {})
         records_list = live_aha_data["ideas"]
 
@@ -427,7 +427,7 @@ class TestAhaConnectorIntegration:
 
     def test_proxy_votes_unmapped_fields(self, integration_config, live_aha_data):
         """Check for unmapped fields in proxy votes."""
-        connector = AhaLakeflowConnect({**integration_config, "ideas_workflow_status": "Open", "max_ideas": "200"})
+        connector = AhaLakeflowConnect({**integration_config, "ideas_workflow_status": "Open", "max_ideas": "100"})
         schema = connector.get_table_schema("idea_proxy_votes", {})
         records_list = live_aha_data["proxy_votes"]
 
@@ -444,7 +444,7 @@ class TestAhaConnectorIntegration:
 
     def test_comments_unmapped_fields(self, integration_config, live_aha_data):
         """Check for unmapped fields in comments."""
-        connector = AhaLakeflowConnect({**integration_config, "ideas_workflow_status": "Open", "max_ideas": "200"})
+        connector = AhaLakeflowConnect({**integration_config, "ideas_workflow_status": "Open", "max_ideas": "100"})
         schema = connector.get_table_schema("idea_comments", {})
         records_list = live_aha_data["comments"]
 
@@ -472,7 +472,7 @@ class TestAhaConnectorWithTestSuite:
         """Run the bounded LakeflowConnectTester suite against live API.
 
         This is intentionally configured to be as light as our other integration tests:
-        - ideas: Open + max_ideas=200
+        - ideas: Open + max_ideas=100
         - child tables: max_ideas=5
         """
         try:

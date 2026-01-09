@@ -273,87 +273,22 @@ def register_lakeflow_source(spark):
                         StructField("id", StringType()),
                         StructField("reference_num", StringType()),
                         StructField("name", StringType()),
+                        StructField("description", StringType()),
                         StructField("created_at", StringType()),
                         StructField("updated_at", StringType()),
-                        StructField("product_id", StringType()),
                         StructField("votes", LongType()),
-                        StructField("initial_votes", LongType()),
                         StructField("endorsements_count", LongType()),
                         StructField("comments_count", LongType()),
-                        StructField("score", LongType()),
-                        StructField("status_changed_at", StringType()),
-                        StructField("visibility", StringType()),
                         StructField("url", StringType()),
-                        StructField("resource", StringType()),
                         StructField(
                             "workflow_status",
                             StructType(
                                 [
                                     StructField("id", StringType()),
                                     StructField("name", StringType()),
-                                    StructField("position", LongType()),
                                     StructField("complete", BooleanType()),
-                                    StructField("color", StringType()),
                                 ]
                             ),
-                        ),
-                        StructField(
-                            "description",
-                            StructType(
-                                [
-                                    StructField("id", StringType()),
-                                    StructField("body", StringType()),
-                                    StructField("editor_version", LongType()),
-                                    StructField("created_at", StringType()),
-                                    StructField("updated_at", StringType()),
-                                    StructField(
-                                        "attachments",
-                                        ArrayType(MapType(StringType(), StringType())),
-                                    ),
-                                ]
-                            ),
-                        ),
-                        StructField(
-                            "created_by_user",
-                            StructType(
-                                [
-                                    StructField("id", StringType()),
-                                    StructField("name", StringType()),
-                                    StructField("email", StringType()),
-                                    StructField("created_at", StringType()),
-                                    StructField("updated_at", StringType()),
-                                ]
-                            ),
-                        ),
-                        StructField(
-                            "assigned_to_user",
-                            StructType(
-                                [
-                                    StructField("id", StringType()),
-                                    StructField("name", StringType()),
-                                    StructField("email", StringType()),
-                                    StructField("created_at", StringType()),
-                                    StructField("updated_at", StringType()),
-                                ]
-                            ),
-                        ),
-                        StructField("tags", ArrayType(StringType())),
-                        StructField(
-                            "categories",
-                            ArrayType(
-                                StructType(
-                                    [
-                                        StructField("id", StringType()),
-                                        StructField("name", StringType()),
-                                        StructField("parent_id", LongType()),
-                                        StructField("created_at", StringType()),
-                                    ]
-                                )
-                            ),
-                        ),
-                        StructField(
-                            "custom_fields",
-                            ArrayType(MapType(StringType(), StringType())),
                         ),
                     ]
                 ),
@@ -696,6 +631,18 @@ def register_lakeflow_source(spark):
             logger.info("Fetching ideas from Aha!")
             ideas = self._get_ideas(table_options)
             logger.info(f"Fetched {len(ideas)} ideas")
+            # Flatten description.body -> description
+            for idea in ideas:
+                desc = idea.get("description")
+                if isinstance(desc, dict):
+                    idea["description"] = desc.get("body")
+                else:
+                    idea["description"] = None
+                    if desc is not None:
+                        logger.warning(
+                            f"Could not extract description for idea {idea.get('id')}: "
+                            f"expected dict, got {type(desc).__name__}"
+                        )
             return iter(ideas), {}
 
         def _read_proxy_votes(self, table_options: Dict[str, str]) -> (Iterator[dict], dict):
