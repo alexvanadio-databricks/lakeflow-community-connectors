@@ -94,8 +94,11 @@ community-connector create_connection aha <CONNECTION_NAME> \
 
 3. Create and run the ingestion pipeline:
 
+**Important:** Use the `-ps` flag with a complete pipeline spec to avoid template placeholder errors. The default template contains ellipsis (`...`) placeholders that cause `TypeError: Object of type ellipsis is not JSON serializable`.
+
 ```bash
-community-connector create_pipeline aha <PIPELINE_NAME> -n <CONNECTION_NAME> \
+community-connector create_pipeline aha <PIPELINE_NAME> \
+  -ps '{"connection_name":"<CONNECTION_NAME>","objects":[{"table":{"source_table":"ideas"}},{"table":{"source_table":"idea_proxy_votes"}},{"table":{"source_table":"idea_comments"}}]}' \
   --repo-url <YOUR_REPO_URL>
 
 community-connector run_pipeline <PIPELINE_NAME>
