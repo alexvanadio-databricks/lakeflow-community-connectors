@@ -8,6 +8,13 @@ This folder contains the **Aha!** community connector implementation plus the **
 - Your fork/clone of this repo is **pushed** to a Git host Databricks can access.
 - You have Databricks CLI/SDK auth configured locally (the `community-connector` tool uses the same auth).
 
+### Specifying a Databricks workspace
+If you have multiple Databricks CLI profiles configured, specify which workspace to use via the `DATABRICKS_CONFIG_PROFILE` environment variable:
+
+```bash
+DATABRICKS_CONFIG_PROFILE=my-profile community-connector create_connection ...
+```
+
 ### Files that must be in your repo/branch
 - `aha.py`: the connector implementation
 - `_generated_aha_python_source.py`: **single-file deployable** (Databricks SDP-friendly)

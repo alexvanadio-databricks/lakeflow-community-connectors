@@ -1,0 +1,8 @@
+connection_name: aha_conn
+objects:
+  - table:
+      source_table: ideas
+  - table:
+      source_table: idea_proxy_votes
+  - table:
+      source_table: idea_comments
