@@ -2,6 +2,62 @@
 
 This folder contains the **Aha!** community connector implementation plus the **deployable artifacts** Databricks needs to run it.
 
+## How Ingestion Works
+
+The Aha! connector uses **CDC (Change Data Capture)** to efficiently sync data from Aha! to Databricks. Instead of fetching all data on every run, it tracks what has changed since the last sync.
+
+### Tables
+
+The connector ingests three tables:
+
+| Table | Description |
+|-------|-------------|
+| `ideas` | Product ideas submitted to Aha! |
+| `idea_proxy_votes` | Proxy votes (votes on behalf of customers/organizations) |
+| `idea_comments` | Comments on ideas |
+
+### Incremental Sync Behavior
+
+**First run:** The connector fetches all ideas from Aha! and processes their associated proxy votes and comments. This initial sync may take longer depending on the volume of data.
+
+**Subsequent runs:** The connector only fetches ideas that have been updated since the last sync. It uses the `updated_since` parameter on the Aha! API to filter results. This dramatically reduces the number of API calls and processing time.
+
+### Why This Works for Child Tables
+
+A key insight that enables efficient syncing: **when a proxy vote or comment is added to an idea, Aha! updates the parent idea's `updated_at` timestamp**. This means:
+
+- We only need to track the ideas' `updated_at` values
+- When we fetch ideas updated since the last sync, we automatically get ideas that have new votes or comments
+- Child tables (proxy votes, comments) only need to be fetched for the filtered set of ideas
+
+For example, if you have 10,000 ideas but only 50 were updated since the last sync, the connector will:
+1. Fetch those 50 ideas (instead of 10,000)
+2. Fetch proxy votes for only those 50 ideas (instead of 10,000 API calls)
+3. Fetch comments for only those 50 ideas (instead of 10,000 API calls)
+
+### Offset Handling
+
+The connector is **stateless** - it does not persist or retrieve checkpoint data itself. The responsibility is split:
+
+**What the connector does:**
+- Receives `start_offset` as input (empty on first run)
+- Uses it to filter Aha! API calls via `updated_since`
+- Computes the maximum `updated_at` from returned records
+- Returns the new offset in the response
+
+**What Spark/Lakeflow does:**
+- Persists the offset to checkpoint storage (cloud storage) after each successful batch
+- Retrieves it and passes it back to the connector on the next run
+
+This separation means the connector works correctly in any environment (local testing, Databricks, etc.) without depending on any specific storage mechanism.
+
+### Limitations
+
+- **Deletes are not tracked:** If an idea is deleted in Aha!, it will remain in the downstream Databricks tables. The Aha! API does not expose deleted records.
+- **First run is a full fetch:** There's no way to avoid fetching all data on the initial sync.
+
+---
+
 ## Deploying with the `community-connector` CLI (recommended)
 
 ### Prereqs

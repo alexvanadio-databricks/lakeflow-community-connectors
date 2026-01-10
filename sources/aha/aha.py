@@ -22,7 +22,7 @@ class LakeflowConnect:
     Aha! connector for Lakeflow Community Connectors.
 
     Ingests ideas, proxy votes, and comments from the Aha! API.
-    Uses snapshot-based synchronization.
+    Uses CDC (Change Data Capture) synchronization with updated_since filtering.
     """
 
     def __init__(self, options: dict[str, str]) -> None:
@@ -49,9 +49,9 @@ class LakeflowConnect:
                 "Accept": "application/json",
             }
         )
-        # Cache for ideas list, keyed by (workflow_status, q, max_ideas).
+        # Cache for ideas list, keyed by (workflow_status, q, max_ideas, updated_since).
         # Keep None as the "cleared" state for compatibility with existing tests.
-        self._ideas_cache: Optional[dict[Tuple[Optional[str], Optional[str], Optional[int]], list[dict]]] = None
+        self._ideas_cache: Optional[dict[Tuple[Optional[str], Optional[str], Optional[int], Optional[str]], list[dict]]] = None
 
     def list_tables(self) -> List[str]:
         """Return the list of available Aha! tables."""
@@ -217,23 +217,23 @@ class LakeflowConnect:
     ) -> dict:
         """
         Fetch the metadata of a table.
-        All tables use snapshot ingestion type.
+        All tables use CDC ingestion type with updated_at as cursor field.
         """
         metadata = {
             "ideas": {
                 "primary_keys": ["id"],
-                "cursor_field": None,
-                "ingestion_type": "snapshot",
+                "cursor_field": "updated_at",
+                "ingestion_type": "cdc",
             },
             "idea_proxy_votes": {
                 "primary_keys": ["id"],
-                "cursor_field": None,
-                "ingestion_type": "snapshot",
+                "cursor_field": "updated_at",
+                "ingestion_type": "cdc",
             },
             "idea_comments": {
                 "primary_keys": ["id"],
-                "cursor_field": None,
-                "ingestion_type": "snapshot",
+                "cursor_field": "updated_at",
+                "ingestion_type": "cdc",
             },
         }
 
@@ -245,13 +245,13 @@ class LakeflowConnect:
     def read_table(
         self, table_name: str, start_offset: dict, table_options: Dict[str, str]
     ) -> (Iterator[dict], dict):
-        """Read data from the specified Aha! table."""
+        """Read data from the specified Aha! table with CDC support."""
         if table_name == "ideas":
-            return self._read_ideas(table_options)
+            return self._read_ideas(start_offset, table_options)
         elif table_name == "idea_proxy_votes":
-            return self._read_proxy_votes(table_options)
+            return self._read_proxy_votes(start_offset, table_options)
         elif table_name == "idea_comments":
-            return self._read_comments(table_options)
+            return self._read_comments(start_offset, table_options)
         else:
             raise ValueError(f"Table '{table_name}' is not supported.")
 
@@ -278,15 +278,17 @@ class LakeflowConnect:
         # Support q as a convenience alias for ideas table.
         return table_options.get("ideas_q") or table_options.get("q")
 
-    def _get_ideas(self, table_options: Dict[str, str]) -> list[dict]:
+    def _get_ideas(self, start_offset: dict, table_options: Dict[str, str]) -> list[dict]:
         """
-        Get all ideas, using cache if available.
+        Get ideas, using cache if available.
+        Supports CDC filtering via updated_since from start_offset.
         This prevents duplicate API calls when reading child tables.
         """
         workflow_status = self._effective_ideas_workflow_status(table_options)
         q = self._effective_ideas_q(table_options)
         max_ideas = self._effective_max_ideas(table_options)
-        cache_key = (workflow_status, q, max_ideas)
+        updated_since = start_offset.get("updated_since") if start_offset else None
+        cache_key = (workflow_status, q, max_ideas, updated_since)
 
         if self._ideas_cache is None:
             self._ideas_cache = {}
@@ -298,6 +300,9 @@ class LakeflowConnect:
             if q:
                 # Aha docs: q searches against idea name; pass-through.
                 extra_params["q"] = q
+            if updated_since:
+                # CDC: only fetch ideas updated since the last checkpoint
+                extra_params["updated_since"] = updated_since
 
             # Fetch at most max_ideas ideas (early stop) to bound work.
             self._ideas_cache[cache_key] = self._fetch_paginated(
@@ -312,6 +317,19 @@ class LakeflowConnect:
     def clear_cache(self) -> None:
         """Clear the ideas cache. Useful between test runs."""
         self._ideas_cache = None
+
+    @staticmethod
+    def _find_max_updated_at(records: list[dict], fallback: Optional[str] = None) -> Optional[str]:
+        """
+        Find the maximum updated_at value from records.
+        Used to compute the next offset for CDC.
+        """
+        max_val = fallback
+        for record in records:
+            updated_at = record.get("updated_at")
+            if updated_at and (max_val is None or updated_at > max_val):
+                max_val = updated_at
+        return max_val
 
     def _fetch_paginated(
         self,
@@ -422,10 +440,11 @@ class LakeflowConnect:
 
         return 60
 
-    def _read_ideas(self, table_options: Dict[str, str]) -> (Iterator[dict], dict):
-        """Read all ideas from Aha!."""
-        logger.info("Fetching ideas from Aha!")
-        ideas = self._get_ideas(table_options)
+    def _read_ideas(self, start_offset: dict, table_options: Dict[str, str]) -> (Iterator[dict], dict):
+        """Read ideas from Aha! with CDC support."""
+        updated_since = start_offset.get("updated_since") if start_offset else None
+        logger.info(f"Fetching ideas from Aha! (updated_since={updated_since})")
+        ideas = self._get_ideas(start_offset, table_options)
         logger.info(f"Fetched {len(ideas)} ideas")
         # Flatten description.body -> description
         for idea in ideas:
@@ -439,18 +458,22 @@ class LakeflowConnect:
                         f"Could not extract description for idea {idea.get('id')}: "
                         f"expected dict, got {type(desc).__name__}"
                     )
-        return iter(ideas), {}
+        # Compute next offset from max updated_at
+        max_updated_at = self._find_max_updated_at(ideas, updated_since)
+        next_offset = {"updated_since": max_updated_at} if max_updated_at else (start_offset or {})
+        return iter(ideas), next_offset
 
-    def _read_proxy_votes(self, table_options: Dict[str, str]) -> (Iterator[dict], dict):
+    def _read_proxy_votes(self, start_offset: dict, table_options: Dict[str, str]) -> (Iterator[dict], dict):
         """
-        Read proxy votes for all ideas.
+        Read proxy votes for ideas with CDC support.
         Uses cached ideas list to avoid duplicate API calls.
         """
+        updated_since = start_offset.get("updated_since") if start_offset else None
         records = []
-        ideas = self._get_ideas(table_options)
+        ideas = self._get_ideas(start_offset, table_options)
         total_ideas = len(ideas)
 
-        logger.info(f"Fetching proxy votes for {total_ideas} ideas")
+        logger.info(f"Fetching proxy votes for {total_ideas} ideas (updated_since={updated_since})")
 
         for i, idea in enumerate(ideas):
             idea_id = idea.get("id")
@@ -473,18 +496,22 @@ class LakeflowConnect:
                 records.append(vote)
 
         logger.info(f"Fetched {len(records)} proxy votes across {total_ideas} ideas")
-        return iter(records), {}
+        # Compute next offset from max updated_at
+        max_updated_at = self._find_max_updated_at(records, updated_since)
+        next_offset = {"updated_since": max_updated_at} if max_updated_at else (start_offset or {})
+        return iter(records), next_offset
 
-    def _read_comments(self, table_options: Dict[str, str]) -> (Iterator[dict], dict):
+    def _read_comments(self, start_offset: dict, table_options: Dict[str, str]) -> (Iterator[dict], dict):
         """
-        Read comments for all ideas.
+        Read comments for ideas with CDC support.
         Uses cached ideas list to avoid duplicate API calls.
         """
+        updated_since = start_offset.get("updated_since") if start_offset else None
         records = []
-        ideas = self._get_ideas(table_options)
+        ideas = self._get_ideas(start_offset, table_options)
         total_ideas = len(ideas)
 
-        logger.info(f"Fetching comments for {total_ideas} ideas")
+        logger.info(f"Fetching comments for {total_ideas} ideas (updated_since={updated_since})")
 
         for i, idea in enumerate(ideas):
             idea_id = idea.get("id")
@@ -507,4 +534,7 @@ class LakeflowConnect:
                 records.append(comment)
 
         logger.info(f"Fetched {len(records)} comments across {total_ideas} ideas")
-        return iter(records), {}
+        # Compute next offset from max updated_at
+        max_updated_at = self._find_max_updated_at(records, updated_since)
+        next_offset = {"updated_since": max_updated_at} if max_updated_at else (start_offset or {})
+        return iter(records), next_offset

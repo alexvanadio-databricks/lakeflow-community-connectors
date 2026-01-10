@@ -245,7 +245,9 @@ class TestAhaConnectorIntegration:
             metadata = connector.read_table_metadata(table_name, {})
             assert "primary_keys" in metadata
             assert "ingestion_type" in metadata
-            assert metadata["ingestion_type"] == "snapshot"
+            assert "cursor_field" in metadata
+            assert metadata["ingestion_type"] == "cdc"
+            assert metadata["cursor_field"] == "updated_at"
 
     def test_read_ideas_returns_data(self, live_aha_data):
         """Test that read_table for ideas returns data from live API."""
@@ -282,13 +284,13 @@ class TestAhaConnectorIntegration:
         """Test that ideas cache prevents duplicate API calls when using same parameters."""
         connector = AhaLakeflowConnect({**integration_config, "ideas_workflow_status": "Open", "max_ideas": "5"})
 
-        # Read ideas first
+        # Read ideas first (with empty offset for initial run)
         ideas_records, _ = connector.read_table("ideas", {}, {})
         ideas_list = list(ideas_records)
 
-        # Cache should now be populated with key ("Open", None, 5)
+        # Cache should now be populated with key (workflow_status, q, max_ideas, updated_since)
         assert connector._ideas_cache is not None
-        cache_key = ("Open", None, 5)
+        cache_key = ("Open", None, 5, None)  # updated_since is None for initial run
         assert cache_key in connector._ideas_cache
         cached_ideas_count = len(connector._ideas_cache[cache_key])
 
@@ -305,6 +307,95 @@ class TestAhaConnectorIntegration:
         # Cache should still have the same entry
         assert cache_key in connector._ideas_cache
         assert len(connector._ideas_cache[cache_key]) == cached_ideas_count
+
+    def test_cdc_second_run_uses_offset(self, integration_config):
+        """
+        Test CDC behavior: 2nd+ run should use the offset to filter results.
+        This is the critical test for incremental sync behavior.
+        """
+        connector = AhaLakeflowConnect({
+            **integration_config,
+            "ideas_workflow_status": "Open",
+            "max_ideas": "10"
+        })
+
+        # First run: no offset (simulates initial sync)
+        first_records, first_offset = connector.read_table("ideas", {}, {})
+        first_ideas = list(first_records)
+
+        # Verify we got data and an offset
+        assert len(first_ideas) > 0, "Expected at least one idea from first run"
+        assert "updated_since" in first_offset, "Expected offset with updated_since"
+        assert first_offset["updated_since"] is not None
+
+        # Clear cache to force a new API call
+        connector.clear_cache()
+
+        # Second run: use the offset from first run (simulates incremental sync)
+        second_records, second_offset = connector.read_table("ideas", first_offset, {})
+        second_ideas = list(second_records)
+
+        # Second run should return fewer or equal results (nothing changed since first run)
+        assert len(second_ideas) <= len(first_ideas), (
+            f"Second run returned {len(second_ideas)} ideas, expected <= {len(first_ideas)}"
+        )
+
+        # Offset should be preserved or updated
+        assert "updated_since" in second_offset
+
+    def test_cdc_with_old_offset_returns_recent_changes(self, integration_config):
+        """
+        Test that using an old offset returns ideas updated since that time.
+        """
+        connector = AhaLakeflowConnect({
+            **integration_config,
+            "ideas_workflow_status": "Open",
+            "max_ideas": "100"
+        })
+
+        # Use an offset from 7 days ago
+        from datetime import datetime, timedelta
+        seven_days_ago = (datetime.utcnow() - timedelta(days=7)).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+        old_offset = {"updated_since": seven_days_ago}
+
+        # Run with old offset
+        records, new_offset = connector.read_table("ideas", old_offset, {})
+        ideas = list(records)
+
+        # Should get some ideas (those updated in last 7 days)
+        # Note: This may be 0 if no ideas were updated recently, which is valid
+        assert isinstance(ideas, list)
+        assert "updated_since" in new_offset
+
+        # If we got ideas, verify they were updated after our offset
+        for idea in ideas:
+            assert idea.get("updated_at") >= seven_days_ago, (
+                f"Idea {idea.get('id')} updated_at {idea.get('updated_at')} is before offset {seven_days_ago}"
+            )
+
+    def test_cdc_proxy_votes_with_offset(self, integration_config):
+        """Test CDC behavior for proxy_votes table with offset."""
+        connector = AhaLakeflowConnect({
+            **integration_config,
+            "ideas_workflow_status": "Open",
+            "max_ideas": "5"
+        })
+
+        # First run
+        first_records, first_offset = connector.read_table("idea_proxy_votes", {}, {})
+        first_votes = list(first_records)
+
+        assert "updated_since" in first_offset
+
+        # Clear cache
+        connector.clear_cache()
+
+        # Second run with offset
+        second_records, second_offset = connector.read_table("idea_proxy_votes", first_offset, {})
+        second_votes = list(second_records)
+
+        # Should return fewer or equal (nothing changed)
+        assert len(second_votes) <= len(first_votes)
 
     def test_full_connector_workflow(self, live_aha_data):
         """Test a complete workflow: list tables, get schemas, read data."""
