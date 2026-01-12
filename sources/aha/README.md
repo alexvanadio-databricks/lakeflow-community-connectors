@@ -1,100 +1,139 @@
-# Aha! Lakeflow Community Connector
+# Lakeflow Aha! Community Connector
 
-This folder contains the **Aha!** community connector implementation plus the **deployable artifacts** Databricks needs to run it.
+This documentation provides setup instructions and reference information for the Aha! source connector.
 
-## How Ingestion Works
+## Prerequisites
 
-The Aha! connector uses **CDC (Change Data Capture)** to efficiently sync data from Aha! to Databricks. Instead of fetching all data on every run, it tracks what has changed since the last sync.
+- An Aha! account with API access enabled
+- An API key (Bearer token) for authentication
+- Your Aha! subdomain (e.g., `company` for `company.aha.io`)
 
-### Tables
+## Setup
 
-The connector ingests three tables:
+### Required Connection Parameters
 
-| Table | Description |
-|-------|-------------|
-| `ideas` | Product ideas submitted to Aha! |
-| `idea_proxy_votes` | Proxy votes (votes on behalf of customers/organizations) |
-| `idea_comments` | Comments on ideas |
+| Parameter | Type | Required | Description | Example |
+|-----------|------|----------|-------------|---------|
+| `api_key` | string | Yes | Aha! API key used for authentication (sent as Bearer token) | `abc123...` |
+| `subdomain` | string | Yes | Your Aha! subdomain | `company` |
+| `ideas_workflow_status` | string | No | Default workflow status filter for ideas | `under_consideration` |
+| `max_ideas` | string | No | Cap on number of ideas fetched (useful for testing) | `100` |
 
-### Incremental Sync Behavior
+### Table-Specific Options
 
-**First run:** The connector fetches all ideas from Aha! and processes their associated proxy votes and comments. This initial sync may take longer depending on the volume of data.
+The following options can be passed per-table via `table_configuration`. Include them in the `externalOptionsAllowList` connection parameter as a comma-separated string:
 
-**Subsequent runs:** The connector only fetches ideas that have been updated since the last sync. It uses the `updated_since` parameter on the Aha! API to filter results. This dramatically reduces the number of API calls and processing time.
-
-### Why This Works for Child Tables
-
-A key insight that enables efficient syncing: **when a proxy vote or comment is added to an idea, Aha! updates the parent idea's `updated_at` timestamp**. This means:
-
-- We only need to track the ideas' `updated_at` values
-- When we fetch ideas updated since the last sync, we automatically get ideas that have new votes or comments
-- Child tables (proxy votes, comments) only need to be fetched for the filtered set of ideas
-
-For example, if you have 10,000 ideas but only 50 were updated since the last sync, the connector will:
-1. Fetch those 50 ideas (instead of 10,000)
-2. Fetch proxy votes for only those 50 ideas (instead of 10,000 API calls)
-3. Fetch comments for only those 50 ideas (instead of 10,000 API calls)
-
-### Offset Handling
-
-The connector is **stateless** - it does not persist or retrieve checkpoint data itself. The responsibility is split:
-
-**What the connector does:**
-- Receives `start_offset` as input (empty on first run)
-- Uses it to filter Aha! API calls via `updated_since`
-- Computes the maximum `updated_at` from returned records
-- Returns the new offset in the response
-
-**What Spark/Lakeflow does:**
-- Persists the offset to checkpoint storage (cloud storage) after each successful batch
-- Retrieves it and passes it back to the connector on the next run
-
-This separation means the connector works correctly in any environment (local testing, Databricks, etc.) without depending on any specific storage mechanism.
-
-### Limitations
-
-- **Deletes are not tracked:** If an idea is deleted in Aha!, it will remain in the downstream Databricks tables. The Aha! API does not expose deleted records.
-- **First run is a full fetch:** There's no way to avoid fetching all data on the initial sync.
-
----
-
-## Deploying with the `community-connector` CLI (recommended)
-
-### Prereqs
-- Your fork/clone of this repo is **pushed** to a Git host Databricks can access.
-- You have Databricks CLI/SDK auth configured locally (the `community-connector` tool uses the same auth).
-
-### Specifying a Databricks workspace
-If you have multiple Databricks CLI profiles configured, specify which workspace to use via the `DATABRICKS_CONFIG_PROFILE` environment variable:
-
-```bash
-DATABRICKS_CONFIG_PROFILE=my-profile community-connector create_connection ...
+```
+ideas_workflow_status,max_ideas,ideas_q,q
 ```
 
-### Files that must be in your repo/branch
-- `aha.py`: the connector implementation
-- `_generated_aha_python_source.py`: **single-file deployable** (Databricks SDP-friendly)
-- `connector_spec.yaml`: connection parameter + `externalOptionsAllowList` spec for UI/CLI validation
+| Option | Description |
+|--------|-------------|
+| `ideas_workflow_status` | Filter ideas by workflow status (overrides connection default) |
+| `max_ideas` | Limit number of ideas fetched (overrides connection default) |
+| `ideas_q` / `q` | Search query to filter ideas by name |
 
-### Typical CLI flow
-1. Install the CLI:
+### Obtaining Your API Key
 
-```bash
-cd tools/community_connector
-pip install -e .
-```
+1. Log in to your Aha! account at `https://<subdomain>.aha.io`
+2. Click your profile picture in the top-right corner
+3. Select **Settings** > **Personal** > **Developer** > **API keys**
+4. Click **Generate new API key**
+5. Copy the generated key and store it securely
 
-2. Create a Unity Catalog connection (type: `GENERIC_LAKEFLOW_CONNECT`). The CLI validates options against `connector_spec.yaml` and auto-adds `externalOptionsAllowList`:
+### Create a Unity Catalog Connection
 
+A Unity Catalog connection for this connector can be created in two ways:
+
+**Via UI:**
+1. Follow the Lakeflow Community Connector UI flow from the "Add Data" page
+2. Select the Aha! connector or create a new connection
+3. Provide `api_key` and `subdomain`
+4. Set `externalOptionsAllowList` to: `ideas_workflow_status,max_ideas,ideas_q,q`
+
+**Via CLI:**
 ```bash
 community-connector create_connection aha <CONNECTION_NAME> \
   -o '{"api_key":"<AHA_API_KEY>","subdomain":"<AHA_SUBDOMAIN>"}' \
   --spec <YOUR_REPO_URL>
 ```
 
-3. Create and run the ingestion pipeline:
+## Supported Objects
 
-**Important:** Use the `-ps` flag with a complete pipeline spec to avoid template placeholder errors. The default template contains ellipsis (`...`) placeholders that cause `TypeError: Object of type ellipsis is not JSON serializable`.
+The connector ingests three tables from Aha!:
+
+| Table | Description | Primary Key | Cursor Field | Ingestion Type |
+|-------|-------------|-------------|--------------|----------------|
+| `ideas` | Product ideas submitted to Aha! | `id` | `updated_at` | CDC |
+| `idea_proxy_votes` | Proxy votes (votes on behalf of customers/organizations) | `id` | `updated_at` | CDC |
+| `idea_comments` | Comments on ideas | `id` | `updated_at` | CDC |
+
+### Incremental Sync Behavior
+
+The connector uses **CDC (Change Data Capture)** with the `updated_since` API parameter:
+
+- **First run:** Fetches all ideas and their associated proxy votes and comments
+- **Subsequent runs:** Only fetches ideas updated since the last sync
+
+**Why child tables sync efficiently:** When a proxy vote or comment is added to an idea, Aha! updates the parent idea's `updated_at` timestamp. This means:
+- We only track the ideas' `updated_at` values
+- Updated ideas automatically include those with new votes or comments
+- Child tables only need API calls for the filtered set of ideas
+
+### Limitations
+
+- **Deletes are not tracked:** If an idea is deleted in Aha!, it remains in downstream Databricks tables. The Aha! API does not expose deleted records.
+- **First run is a full fetch:** There's no way to avoid fetching all data on the initial sync.
+
+## Data Type Mapping
+
+| Aha! Type | Spark Type |
+|-----------|------------|
+| String / Text | `StringType` |
+| Integer / Count | `LongType` |
+| Boolean | `BooleanType` |
+| Nested Object | `StructType` |
+| Array | `ArrayType` |
+| Key-Value Pairs | `MapType(StringType, StringType)` |
+| Timestamp (ISO 8601) | `StringType` (stored as string) |
+
+## How to Run
+
+### Step 1: Clone/Copy the Source Connector Code
+
+Follow the Lakeflow Community Connector UI, which will guide you through setting up a pipeline using the Aha! connector code.
+
+### Step 2: Configure Your Pipeline
+
+Update the `pipeline_spec` to include the tables you want to ingest:
+
+```json
+{
+  "pipeline_spec": {
+    "connection_name": "<CONNECTION_NAME>",
+    "objects": [
+      {
+        "table": {
+          "source_table": "ideas",
+          "ideas_workflow_status": "under_consideration"
+        }
+      },
+      {
+        "table": {
+          "source_table": "idea_proxy_votes"
+        }
+      },
+      {
+        "table": {
+          "source_table": "idea_comments"
+        }
+      }
+    ]
+  }
+}
+```
+
+### Step 3: Run and Schedule the Pipeline
 
 ```bash
 community-connector create_pipeline aha <PIPELINE_NAME> \
@@ -104,48 +143,66 @@ community-connector create_pipeline aha <PIPELINE_NAME> \
 community-connector run_pipeline <PIPELINE_NAME>
 ```
 
-## Running Tests
+### Best Practices
 
-Run all tests (unit + integration) with logs visible:
+- **Start small:** Use `max_ideas` to limit initial syncs during testing
+- **Filter by status:** Use `ideas_workflow_status` to sync only relevant ideas
+- **Use incremental sync:** The CDC approach significantly reduces API calls after the first run
+- **Monitor rate limits:** Aha! API has rate limits; the connector handles 429 responses with automatic retry
+
+### Troubleshooting
+
+**Authentication errors (401):**
+- Verify your API key is valid and hasn't expired
+- Ensure the API key has appropriate permissions
+
+**Rate limiting (429):**
+- The connector automatically retries with backoff
+- If persistent, reduce sync frequency or use `max_ideas` to limit scope
+
+**Missing data:**
+- Check if ideas are filtered by `ideas_workflow_status`
+- Verify the subdomain is correct
+
+**Empty child tables:**
+- Proxy votes require ideas to have endorsements enabled
+- Comments only appear if users have commented on ideas
+
+## References
+
+- [Aha! API Documentation](https://www.aha.io/api)
+- [Aha! API Authentication](https://www.aha.io/api#authentication)
+- [Aha! Ideas API](https://www.aha.io/api/resources/ideas)
+
+---
+
+## Developer Notes
+
+The sections below are for contributors developing or maintaining this connector.
+
+### Files Required for Deployment
+
+- `aha.py`: The connector implementation
+- `_generated_aha_python_source.py`: Single-file deployable (Databricks SDP-friendly)
+- `connector_spec.yaml`: Connection parameter and options allowlist spec
+
+### Running Tests
 
 ```bash
 pytest sources/aha/test/ -v --log-cli-level=INFO
 ```
 
 - **Unit tests** (`test_aha_unit.py`): Use mocked fixtures, no network calls
-- **Integration tests** (`test_aha_integration.py`): Hit live Aha! API, require `configs/dev_config.json` with valid credentials
+- **Integration tests** (`test_aha_integration.py`): Hit live Aha! API, require `configs/dev_config.json`
 
-Integration tests are bounded by `max_ideas=100` to keep runtime reasonable (~2-3 minutes).
+### Regenerating the Deployable
 
-## Regenerating the deployable `_generated_aha_python_source.py`
-
-Databricks SDP does not reliably support Python module imports for sources, so this repo uses a merged, single-file artifact.
-
-Re-run the merge script **any time you change**:
-- `sources/aha/aha.py`
-- `libs/utils.py`
-- `pipeline/lakeflow_python_source.py`
-
-Generate the file like this (from repo root):
+Re-run whenever you change `aha.py`, `libs/utils.py`, or `pipeline/lakeflow_python_source.py`:
 
 ```bash
 python3 tools/scripts/merge_python_source.py aha
 ```
 
-Then **commit the updated** `sources/aha/_generated_aha_python_source.py` so Databricks runs the same code you tested.
+### Updating connector_spec.yaml
 
-## Updating `connector_spec.yaml`
-
-The `connector_spec.yaml` file defines:
-1. **Connection parameters** - Options passed when creating the Unity Catalog connection (e.g., `api_key`, `subdomain`)
-2. **External options allowlist** - Table-specific options that can be passed through at runtime (e.g., `ideas_workflow_status`, `max_ideas`)
-
-This file is used by the `community-connector` CLI to validate connection options and auto-populate the `externalOptionsAllowList` parameter.
-
-**When to update:** If you add/remove/rename connector options in `aha.py`'s `__init__` method or table-specific options accessed from `table_options`.
-
-**How to update:**
-- Use the `/generate-connector-spec` skill in Claude Code, OR
-- Manually edit following the template at `prompts/generate_connector_spec_yaml.md`
-
-**Note:** Schema changes (adding/removing table fields) do NOT require updating this file - it only defines connector-level and table-level *options*, not the data schema.
+Update when you add/remove/rename connector options in `aha.py`. Use the `/generate-connector-spec` skill or manually edit following the template.
